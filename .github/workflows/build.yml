@@ -1,0 +1,87 @@
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'adopt'
+          java-version: 21.0.4
+
+      - name: Set up Alda
+        run: |
+          sudo apt-get install -y libasound2 libasound2-plugins alsa-utils alsa-oss
+          sudo apt-get install -y pulseaudio pulseaudio-utils
+          sudo usermod -aG pulse,pulse-access $USER
+          pulseaudio -D
+          bin=$HOME/.local/bin
+          mkdir -p $bin
+          curl -o $bin/alda https://alda-releases.nyc3.digitaloceanspaces.com/2.3.1/client/linux-amd64/alda
+          curl -o $bin/alda-player https://alda-releases.nyc3.digitaloceanspaces.com/2.3.1/player/non-windows/alda-player
+          chmod +x $bin/alda $bin/alda-player
+          $bin/alda telemetry --disable
+
+      - name: Set up TiMidity++
+        run: |
+          curl -L -o /tmp/TiMidity++-2.15.0.tar.xz https://pilotfiber.dl.sourceforge.net/timidity/TiMidity%2B%2B-2.15.0.tar.xz
+          tar -xf /tmp/TiMidity++-2.15.0.tar.xz -C /tmp
+          cd /tmp/TiMidity++-2.15.0
+          ./configure
+          make
+          sudo make install
+
+      - name: Set up FluidR3
+        run: |
+          soundfonts=$HOME/.local/share/soundfonts
+          mkdir -p $soundfonts
+          curl -o /tmp/fluid-soundfont.tar.gz https://ftp.osuosl.org/pub/musescore/soundfont/fluid-soundfont.tar.gz
+          tar -xzf /tmp/fluid-soundfont.tar.gz -C $soundfonts 'FluidR3 GM2-2.SF2'
+          rm /tmp/fluid-soundfont.tar.gz
+          echo "SOUNDFONT_FILENAME=$soundfonts/FluidR3 GM2-2.SF2" >> $GITHUB_ENV
+
+      - name: Set up FFmpeg
+        uses: federicocarboni/setup-ffmpeg@v3
+        with:
+          ffmpeg-version: 7.0.1
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.3.5
+
+      - name: Build
+        run: ./main.rb
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: build
+
+  push:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    name: Push built files
+    needs: build
+    steps:
+      - uses: actions/download-artifact@v4
+        name: Download
+        with:
+          path: build
+      - name: Push
+        uses: crazy-max/ghaction-github-pages@v3
+        with:
+          target_branch: gh-action-output
+          build_dir: build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
